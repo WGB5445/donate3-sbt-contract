@@ -48,10 +48,12 @@ contract Donate3SBT is
     constructor(
         address initialOwner,
         string memory name_,
-        string memory symbol_
+        string memory symbol_,
+        string memory baseURI_
     ) Ownable(initialOwner) {
         _name = name_;
         _symbol = symbol_;
+        _baseURIStrig = baseURI_;
         _approvalEnabled = false;
     }
 
