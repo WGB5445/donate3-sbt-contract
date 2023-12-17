@@ -125,10 +125,10 @@ contract Donate3SBT is
             bytes(baseURI).length > 0
                 ? string.concat(
                     baseURI,
+                    "?address=",
                     addressToString(owner),
-                    "/",
-                    tokenId.toString(),
-                    ".json"
+                    "&id=",
+                    tokenId.toString()
                 )
                 : "";
     }
