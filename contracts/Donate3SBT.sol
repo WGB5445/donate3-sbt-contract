@@ -1,72 +1,95 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
+
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import {Context} from "@openzeppelin/contracts/utils/Context.sol";
-import {ERC165, IERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
+import {ContextUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
+import {ERC165Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 import {IERC721Metadata} from "@openzeppelin/contracts/token/ERC721/extensions/IERC721Metadata.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 contract Donate3SBT is
-    Context,
-    ERC165,
+    Initializable,
+    ContextUpgradeable,
+    ERC165Upgradeable,
     IERC721,
     IERC721Metadata,
     IERC721Errors,
-    Ownable
+    OwnableUpgradeable,
+    UUPSUpgradeable
 {
     using Strings for uint256;
+    using Strings for address;
 
-    // Token name
-    string private _name;
+    /// @custom:storage-location erc7201:openzeppelin.storage.ERC721
+    struct ERC721Storage {
+        // Token name
+        string _name;
+        // Token symbol
+        string _symbol;
+        // Token Base URI
+        string _baseURIStrig;
+        // approval status
+        bool _approvalEnabled;
+        uint256 _tokenIdCounter;
+        mapping(uint256 tokenId => address) _owners;
+        mapping(address owner => uint256) _balances;
+        mapping(uint256 tokenId => address) _tokenApprovals;
+        mapping(address owner => mapping(address operator => bool)) _operatorApprovals;
+    }
 
-    // Token symbol
-    string private _symbol;
+    // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ERC721")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant ERC721StorageLocation =
+        0x80bb2b638cc20bc4d0a60d66940f3ab4a00c1d7b313497ca82fb0b4ab0079300;
 
-    // Token Base URI
-    string private _baseURIStrig;
+    function _getERC721Storage()
+        private
+        pure
+        returns (ERC721Storage storage $)
+    {
+        assembly {
+            $.slot := ERC721StorageLocation
+        }
+    }
 
-    // approval status
-    bool private _approvalEnabled;
-
-    uint256 private _tokenIdCounter = 0;
-
-    mapping(uint256 tokenId => address) private _owners;
-
-    mapping(address owner => uint256) private _balances;
-
-    mapping(uint256 tokenId => address) private _tokenApprovals;
-
-    mapping(address owner => mapping(address operator => bool))
-        private _operatorApprovals;
-
-    /**
-     * @dev Initializes the contract by setting a `name` and a `symbol` to the token collection.
-     */
-    constructor(
+    function initialize(
         address initialOwner,
         string memory name_,
         string memory symbol_,
         string memory baseURI_
-    ) Ownable(initialOwner) {
-        _name = name_;
-        _symbol = symbol_;
-        _baseURIStrig = baseURI_;
-        _approvalEnabled = false;
+    ) public initializer {
+        __ERC721_init(name_, symbol_, baseURI_);
+        __Ownable_init(initialOwner);
+        __UUPSUpgradeable_init();
     }
 
-    function approvalEnabled() public view returns (bool) {
-        return _approvalEnabled;
+    /**
+     * @dev Initializes the contract by setting a `name` and a `symbol` to the token collection.
+     */
+    function __ERC721_init(
+        string memory name_,
+        string memory symbol_,
+        string memory baseURI_
+    ) internal onlyInitializing {
+        __ERC721_init_unchained(name_, symbol_, baseURI_);
     }
 
-    function setApprovalEnabled(bool approval) external onlyOwner {
-        _approvalEnabled = approval;
-    }
-
-    function setBaseURI(string memory baseURI) external onlyOwner {
-        _baseURIStrig = baseURI;
+    function __ERC721_init_unchained(
+        string memory name_,
+        string memory symbol_,
+        string memory baseURI_
+    ) internal onlyInitializing {
+        ERC721Storage storage $ = _getERC721Storage();
+        $._name = name_;
+        $._symbol = symbol_;
+        $._baseURIStrig = baseURI_;
+        $._tokenIdCounter = 0;
+        $._approvalEnabled = false;
     }
 
     /**
@@ -74,21 +97,47 @@ contract Donate3SBT is
      */
     function supportsInterface(
         bytes4 interfaceId
-    ) public view virtual override(ERC165, IERC165) returns (bool) {
+    ) public view virtual override(ERC165Upgradeable, IERC165) returns (bool) {
         return
             interfaceId == type(IERC721).interfaceId ||
             interfaceId == type(IERC721Metadata).interfaceId ||
             super.supportsInterface(interfaceId);
     }
 
+    function approvalEnabled() public view returns (bool) {
+        ERC721Storage storage $ = _getERC721Storage();
+        return $._approvalEnabled;
+    }
+
+    function tokenIdCounter() public view returns (uint256) {
+        ERC721Storage storage $ = _getERC721Storage();
+        return $._tokenIdCounter;
+    }
+
+    function setApprovalEnabled(bool approval) external onlyOwner {
+        ERC721Storage storage $ = _getERC721Storage();
+        $._approvalEnabled = approval;
+    }
+
+    function setBaseURI(string memory baseURI) external onlyOwner {
+        ERC721Storage storage $ = _getERC721Storage();
+        $._baseURIStrig = baseURI;
+    }
+
+    function mintTo(address to) external {
+        ERC721Storage storage $ = _getERC721Storage();
+        _safeMint(to, $._tokenIdCounter++);
+    }
+
     /**
      * @dev See {IERC721-balanceOf}.
      */
     function balanceOf(address owner) public view virtual returns (uint256) {
+        ERC721Storage storage $ = _getERC721Storage();
         if (owner == address(0)) {
             revert ERC721InvalidOwner(address(0));
         }
-        return _balances[owner];
+        return $._balances[owner];
     }
 
     /**
@@ -102,14 +151,16 @@ contract Donate3SBT is
      * @dev See {IERC721Metadata-name}.
      */
     function name() public view virtual returns (string memory) {
-        return _name;
+        ERC721Storage storage $ = _getERC721Storage();
+        return $._name;
     }
 
     /**
      * @dev See {IERC721Metadata-symbol}.
      */
     function symbol() public view virtual returns (string memory) {
-        return _symbol;
+        ERC721Storage storage $ = _getERC721Storage();
+        return $._symbol;
     }
 
     /**
@@ -126,27 +177,11 @@ contract Donate3SBT is
                 ? string.concat(
                     baseURI,
                     "/",
-                    addressToString(owner),
+                    owner.toHexString(),
                     "/",
                     tokenId.toString()
                 )
                 : "";
-    }
-
-    function addressToString(
-        address _addr
-    ) public pure returns (string memory) {
-        bytes32 value = bytes32(uint256(uint160(_addr)));
-        bytes memory alphabet = "0123456789abcdef";
-
-        bytes memory str = new bytes(51);
-        str[0] = "0";
-        str[1] = "x";
-        for (uint i = 0; i < 20; i++) {
-            str[2 + i * 2] = alphabet[uint(uint8(value[i + 12] >> 4))];
-            str[3 + i * 2] = alphabet[uint(uint8(value[i + 12] & 0x0f))];
-        }
-        return string(str);
     }
 
     /**
@@ -155,8 +190,13 @@ contract Donate3SBT is
      * by default, can be overridden in child contracts.
      */
     function _baseURI() internal view virtual returns (string memory) {
-        return _baseURIStrig;
+        ERC721Storage storage $ = _getERC721Storage();
+        return $._baseURIStrig;
     }
+
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyOwner {}
 
     /**
      * @dev See {IERC721-approve}.
@@ -190,7 +230,8 @@ contract Donate3SBT is
         address owner,
         address operator
     ) public view virtual returns (bool) {
-        return _operatorApprovals[owner][operator];
+        ERC721Storage storage $ = _getERC721Storage();
+        return $._operatorApprovals[owner][operator];
     }
 
     /**
@@ -200,7 +241,7 @@ contract Donate3SBT is
         address from,
         address to,
         uint256 tokenId
-    ) public virtual onlyOwner {
+    ) public virtual {
         if (to == address(0)) {
             revert ERC721InvalidReceiver(address(0));
         }
@@ -245,7 +286,8 @@ contract Donate3SBT is
      * `balanceOf(a)` must be equal to the number of tokens such that `_ownerOf(tokenId)` is `a`.
      */
     function _ownerOf(uint256 tokenId) internal view virtual returns (address) {
-        return _owners[tokenId];
+        ERC721Storage storage $ = _getERC721Storage();
+        return $._owners[tokenId];
     }
 
     /**
@@ -254,7 +296,8 @@ contract Donate3SBT is
     function _getApproved(
         uint256 tokenId
     ) internal view virtual returns (address) {
-        return _tokenApprovals[tokenId];
+        ERC721Storage storage $ = _getERC721Storage();
+        return $._tokenApprovals[tokenId];
     }
 
     /**
@@ -309,8 +352,9 @@ contract Donate3SBT is
      * remain consistent with one another.
      */
     function _increaseBalance(address account, uint128 value) internal virtual {
+        ERC721Storage storage $ = _getERC721Storage();
         unchecked {
-            _balances[account] += value;
+            $._balances[account] += value;
         }
     }
 
@@ -330,6 +374,7 @@ contract Donate3SBT is
         uint256 tokenId,
         address auth
     ) internal virtual returns (address) {
+        ERC721Storage storage $ = _getERC721Storage();
         address from = _ownerOf(tokenId);
 
         // Perform (optional) operator check
@@ -343,17 +388,17 @@ contract Donate3SBT is
             _approve(address(0), tokenId, address(0), false);
 
             unchecked {
-                _balances[from] -= 1;
+                $._balances[from] -= 1;
             }
         }
 
         if (to != address(0)) {
             unchecked {
-                _balances[to] += 1;
+                $._balances[to] += 1;
             }
         }
 
-        _owners[tokenId] = to;
+        $._owners[tokenId] = to;
 
         emit Transfer(from, to, tokenId);
 
@@ -373,7 +418,8 @@ contract Donate3SBT is
      * Emits a {Transfer} event.
      */
     function _mint(address to, uint256 tokenId) internal {
-        require(_balances[to] == 0, "Token already minted");
+        ERC721Storage storage $ = _getERC721Storage();
+        require($._balances[to] == 0, "Token already minted");
         if (to == address(0)) {
             revert ERC721InvalidReceiver(address(0));
         }
@@ -381,10 +427,6 @@ contract Donate3SBT is
         if (previousOwner != address(0)) {
             revert ERC721InvalidSender(address(0));
         }
-    }
-
-    function mintTo(address to) external {
-        _safeMint(to, _tokenIdCounter++);
     }
 
     /**
@@ -430,10 +472,6 @@ contract Donate3SBT is
         if (previousOwner == address(0)) {
             revert ERC721NonexistentToken(tokenId);
         }
-    }
-
-    function burn(uint256 tokenId) external onlyOwner {
-        _burn(tokenId);
     }
 
     /**
@@ -524,7 +562,8 @@ contract Donate3SBT is
         address auth,
         bool emitEvent
     ) internal virtual {
-        require(_approvalEnabled, "Approvals are disabled");
+        ERC721Storage storage $ = _getERC721Storage();
+        require($._approvalEnabled, "Approvals are disabled");
         // Avoid reading the owner unless necessary
         if (emitEvent || auth != address(0)) {
             address owner = _requireOwned(tokenId);
@@ -543,7 +582,7 @@ contract Donate3SBT is
             }
         }
 
-        _tokenApprovals[tokenId] = to;
+        $._tokenApprovals[tokenId] = to;
     }
 
     /**
@@ -559,12 +598,11 @@ contract Donate3SBT is
         address operator,
         bool approved
     ) internal virtual {
-        // stop approvalForAll
-        require(_approvalEnabled, "Approvals are disabled");
+        ERC721Storage storage $ = _getERC721Storage();
         if (operator == address(0)) {
             revert ERC721InvalidOperator(operator);
         }
-        _operatorApprovals[owner][operator] = approved;
+        $._operatorApprovals[owner][operator] = approved;
         emit ApprovalForAll(owner, operator, approved);
     }
 
